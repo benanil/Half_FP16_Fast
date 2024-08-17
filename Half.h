@@ -7,6 +7,7 @@
 *    ...                                                                                  *
 *  Author:                                                                                *
 *    Anilcan Gulkaya 2024 anilcangulkaya7@gmail.com github @benanil                       *
+*    Mike Acton (original implementation): https://cellperformance.beyond3d.com/articles/2006/07/branchfree_implementation_of_h_1.html#half_to_float *
 *******************************************************************************************/
 
 // todo better check for arm neon fp16
