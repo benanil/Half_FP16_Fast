@@ -591,11 +591,4 @@ inline void ConvertFloatToHalfN(half* res, const float* x, const int n)
         *res = ConvertFloatToHalf(*x);
 }
 
-purefn float3 ConvertHalf3ToFloat3(half* h) {
-	float3 res; 
-    ConvertHalf2ToFloat2(&res.x, *(uint32_t*)h); 
-    res.z = ConvertHalfToFloat(h[2]); 
-    return res;
-}
-
 #endif // Half_FP16_Fast
