@@ -23,6 +23,15 @@
     #define purefn inline __attribute__((always_inline))
 #endif
 
+#ifdef _MSC_VER
+    #include <intrin.h>
+    #define VECTORCALL __vectorcall
+#elif __CLANG__
+    #define VECTORCALL [[clang::vectorcall]] 
+#elif __GNUC__
+    #define VECTORCALL  
+#endif
+
 /* Architecture Detection */
 // detection code from mini audio
 // you can define AX_NO_SSE2 or AX_NO_AVX2 in order to disable this extensions
@@ -404,6 +413,29 @@ inline void ConvertFloat2ToHalf2(void* result, float* float2)
     *(half*)result       = ConvertFloatToHalf(float2[0]);
     *((half*)result + 1) = ConvertFloatToHalf(float2[1]);
 }
+
+// calculate popcount of 4 32 bit integer concurrently
+purefn vecu_t VECTORCALL PopCount32_128(vecu_t x)
+{
+    vecu_t y;
+    y = VeciAnd(VeciSrl32(x, 1), VeciSet1(0x55555555));
+    x = VeciSub(x, y);
+    y = VeciAnd(VeciSrl32(x, 2), VeciSet1(0x33333333));
+    x = VeciAdd(VeciAnd(x, VeciSet1(0x33333333)), y);  
+    x = VeciAnd(VeciAdd(x, VeciSrl32(x, 4)), VeciSet1(0x0F0F0F0F));
+    return VeciSrl32(VeciMul(x, VeciSet1(0x01010101)),  24);
+}
+
+// LeadingZeroCount of 4 32 bit integer concurrently
+purefn vecu_t VECTORCALL LeadingZeroCount32_128(vecu_t x)
+{
+    x = VeciOr(x, VeciSrl32(x, 1));
+    x = VeciOr(x, VeciSrl32(x, 2));
+    x = VeciOr(x, VeciSrl32(x, 4));
+    x = VeciOr(x, VeciSrl32(x, 8));
+    x = VeciOr(x, VeciSrl32(x, 16)); 
+    return VeciSub(VeciSet1(sizeof(uint32_t) * 8), PopCount32_128(x));
+}   
 
 // input half4 is 4x 16 bit integer for example it can be uint64_t
 inline void ConvertHalf4ToFloat4(vec_t* result, void* half4) 
