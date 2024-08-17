@@ -141,18 +141,7 @@ typedef __m128i vecu_t;
 #define VeciLoad(x)          _mm_loadu_epi32(x)
 #define VeciLoad64(qword)    _mm_loadu_si64(qword)     /* loads 64bit integer to first 8 bytes of register */
 
-// SSE4.1
-#define VeciSetX(v, x) ((v) = _mm_insert_epi32((v), 0, x))
-#define VeciSetY(v, y) ((v) = _mm_insert_epi32((v), 1, y))
-#define VeciSetZ(v, z) ((v) = _mm_insert_epi32((v), 2, z))
-#define VeciSetW(v, w) ((v) = _mm_insert_epi32((v), 3, w))
-
 #define VeciSelect1111 _mm_set1_epi32(0xFFFFFFFF)
-
-#define VecIdentityR0 _mm_setr_ps(1.0f, 0.0f, 0.0f, 0.0f)
-#define VecIdentityR1 _mm_setr_ps(0.0f, 1.0f, 0.0f, 0.0f)
-#define VecIdentityR2 _mm_setr_ps(0.0f, 0.0f, 1.0f, 0.0f)
-#define VecIdentityR3 _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f)
 
 // int 
 #define VeciAdd(a, b) _mm_add_epi32(a, b)
@@ -194,11 +183,6 @@ typedef uint32x4_t vecu_t;
 #define VeciLoadA(x)          vld1q_u32(x)
 #define VeciLoad(x)           vld1q_u32(x)
 #define VeciLoad64(qword)     vcombine_u32(vcreate_u32(qword), vcreate_u32(0ull)) /* loads 64bit integer to first 8 bytes of register */
-
-#define VeciSetX(v, x) ((v) = vsetq_lane_u32(x, v, 0))
-#define VeciSetY(v, y) ((v) = vsetq_lane_u32(y, v, 1))
-#define VeciSetZ(v, z) ((v) = vsetq_lane_u32(z, v, 2))
-#define VeciSetW(v, w) ((v) = vsetq_lane_u32(w, v, 3))
 
 #define VeciAdd(a, b) vaddq_u32(a, b)
 #define VeciSub(a, b) vsubq_u32(a, b)
@@ -256,19 +240,19 @@ typedef uint32_t uint;
 /*//////////////////////////////////////////////////////////////////////////*/
 
 typedef ushort half;
-constexpr half OneFP16 = 15360;
-constexpr half MinusOneFP16 = 48128;
-constexpr half ZeroFP16 = 0;
-constexpr half HalfFP16 = 14336; // fp16 0.5
-constexpr half Sqrt2FP16 = 15784; // fp16 sqrt(2)
+#define OneFP16()  (15360)
+#define MinusOneFP16() (48128)
+#define ZeroFP16()  (0)
+#define HalfFP16() (14336) /* fp16 0.5 */
+#define Sqrt2FP16() (15784) /* fp16 sqrt(2) */
 
 typedef uint half2;
-constexpr half2 Half2Up    = OneFP16 << 16u;
-constexpr half2 Half2Down  = MinusOneFP16 << 16u;
-constexpr half2 Half2Left  = MinusOneFP16;
-constexpr half2 Half2Right = OneFP16;
-constexpr half2 Half2One   = OneFP16 | (OneFP16 << 16);
-constexpr half2 Half2Zero  = 0;
+#define Half2Up()     (OneFP16 << 16u)
+#define Half2Down()   (MinusOneFP16 << 16u)
+#define Half2Left()   (MinusOneFP16)
+#define Half2Right()  (OneFP16)
+#define Half2One()    (OneFP16 | (OneFP16 << 16))
+#define Half2Zero()   (0)
 
 #define MakeHalf2(x, y) ((x) | ((y) << 16))
 #define Half2SetX(v, x) (v &= 0xFFFF0000u, v |= x;)
