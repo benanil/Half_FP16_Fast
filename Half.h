@@ -206,25 +206,8 @@ typedef uint32x4_t vecu_t;
 #define VecFromVeci(x) vreinterpretq_f32_u32(x)
 #define VeciFromVec(x) vreinterpretq_u32_f32(x)
 // Swizzling Masking
-#define VecSelect1000 ARMCreateVecI(0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u)
-#define VecSelect1100 ARMCreateVecI(0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u, 0x00000000u)
-#define VecSelect1110 ARMCreateVecI(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u)
-#define VecSelect1011 ARMCreateVecI(0xFFFFFFFFu, 0x00000000u, 0xFFFFFFFFu, 0xFFFFFFFFu)
 #define VecSelect1111 ARMCreateVecI(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu)
-
 #define VeciSelect1111 ARMCreateVecI(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu)
-
-#define VecIdentityR0 ARMCreateVec(1.0f, 0.0f, 0.0f, 0.0f)
-#define VecIdentityR1 ARMCreateVec(0.0f, 1.0f, 0.0f, 0.0f)
-#define VecIdentityR2 ARMCreateVec(0.0f, 0.0f, 1.0f, 0.0f)
-#define VecIdentityR3 ARMCreateVec(0.0f, 0.0f, 0.0f, 1.0f)
-
-#define VecMaskXY ARMCreateVecI(0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u, 0x00000000u)
-#define VecMask3  ARMCreateVecI(0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0x00000000u)
-#define VecMaskX  ARMCreateVecI(0xFFFFFFFFu, 0x00000000u, 0x00000000u, 0x00000000u)
-#define VecMaskY  ARMCreateVecI(0x00000000u, 0xFFFFFFFFu, 0x00000000u, 0x00000000u)
-#define VecMaskZ  ARMCreateVecI(0x00000000u, 0x00000000u, 0xFFFFFFFFu, 0x00000000u)
-#define VecMaskW  ARMCreateVecI(0x00000000u, 0x00000000u, 0x00000000u, 0xFFFFFFFFu)
 
 // Logical
 #define VeciNot(a)     vmvnq_u32(a)
