@@ -414,6 +414,7 @@ inline void ConvertFloat2ToHalf2(void* result, float* float2)
     *((half*)result + 1) = ConvertFloatToHalf(float2[1]);
 }
 
+#if defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
 // calculate popcount of 4 32 bit integer concurrently
 purefn vecu_t VECTORCALL PopCount32_128(vecu_t x)
 {
@@ -436,6 +437,7 @@ purefn vecu_t VECTORCALL LeadingZeroCount32_128(vecu_t x)
     x = VeciOr(x, VeciSrl32(x, 16)); 
     return VeciSub(VeciSet1(sizeof(uint32_t) * 8), PopCount32_128(x));
 }   
+#endif // defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
 
 // input half4 is 4x 16 bit integer for example it can be uint64_t
 inline void ConvertHalf4ToFloat4(vec_t* result, void* half4) 
