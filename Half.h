@@ -14,6 +14,22 @@
 
 #ifndef Half_FP16_Fast
 #define Half_FP16_Fast
+#define __STDC_LIMIT_MACROS
+#include <stdint.h>
+#include <float.h>
+
+typedef unsigned char      uint8;
+typedef unsigned short     uint16;
+typedef unsigned int       uint32;
+typedef unsigned long long uint64;
+typedef char      int8;
+typedef short     int16;
+typedef int       int32;
+typedef long long int64;
+
+typedef uint8_t  uchar;
+typedef uint16_t ushort;
+typedef uint32_t uint;
 
 #if defined(__clang__) || defined(__GNUC__)
     #define purefn [[clang::always_inline]] __attribute__((pure)) 
@@ -220,7 +236,7 @@ typedef uint32x4_t vecu_t;
 #define VeciUnpackLow16(a, b) vzip1q_s16(a, b)   /* [a.x, a.y, b.x, b.y] */
 #define VeciBlend(a, b, c)    vbslq_u8(c, b, a)  /* Blend a and b based on mask c */
 
-purefn veci_t ARMCreateVecI(uint x, uint y, uint z, uint w) {
+purefn vecu_t ARMCreateVecI(uint x, uint y, uint z, uint w) {
     return vcombine_u32(vcreate_u32(((uint64_t)x) | (((uint64_t)y) << 32)),
                         vcreate_u32(((uint64_t)z) | (((uint64_t)w) << 32)));
 }
@@ -251,23 +267,6 @@ purefn vecu_t VECTORCALL LeadingZeroCount32_128(vecu_t x)
     return VeciSub(VeciSet1(sizeof(uint32_t) * 8), PopCount32_128(x));
 }   
 #endif // defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
-
-#define __STDC_LIMIT_MACROS
-#include <stdint.h>
-#include <float.h>
-
-typedef unsigned char      uint8;
-typedef unsigned short     uint16;
-typedef unsigned int       uint32;
-typedef unsigned long long uint64;
-typedef char      int8;
-typedef short     int16;
-typedef int       int32;
-typedef long long int64;
-
-typedef uint8_t  uchar;
-typedef uint16_t ushort;
-typedef uint32_t uint;
 
 /*//////////////////////////////////////////////////////////////////////////*/
 /*                             Half                                         */
@@ -329,7 +328,7 @@ purefn half ConvertFloatToHalf(float Value)
     return _cvtss_sh(Value, 0);
 #else
     uint32_t Result; // branch removed version of DirectxMath function
-    uint32_t IValue = <uint32_t>(Value);
+    uint32_t IValue = BitCast(uint32_t, Value);
     uint32_t Sign = (IValue & 0x80000000u) >> 16U;
     IValue = IValue & 0x7FFFFFFFu;      // Hack off the sign
     // if (IValue > 0x47FFEFFFu) { 
@@ -368,18 +367,18 @@ inline void ConvertHalf2ToFloat2(float* result, uint32_t h)
     #endif
 }
 
-inline void ConvertFloat2ToHalf2(void* result, float* float2)
+inline void ConvertFloat2ToHalf2(void* result, const float* float2)
 {
     *(half*)result       = ConvertFloatToHalf(float2[0]);
     *((half*)result + 1) = ConvertFloatToHalf(float2[1]);
 }
 
 // input half4 is 4x 16 bit integer for example it can be uint64_t
-inline void ConvertHalf4ToFloat4(float* result, void* half4) 
+inline void ConvertHalf4ToFloat4(float* result, const void* half4) 
 {
     #ifdef AX_SUPPORT_AVX2
     _mm_storeu_ps(result, _mm_cvtph_ps(_mm_loadu_si64(half4)));
-    #elif defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
+    #elif defined(AX_SUPPORT_SSE) || defined(__ARM_NEON__)
     vecu_t h4 = VeciLoad64(half4);
     h4 = VeciUnpackLow16(h4, VeciZero());   // [half4.xy, half4.xy, half4.zw, half4.zw] 
     
@@ -403,7 +402,7 @@ inline void ConvertHalf4ToFloat4(float* result, void* half4)
 }
 
 // note that no nan, inf and overflow check. only underflow check
-inline void ConvertFloat4ToHalf4(half* result, float* float4)
+ void ConvertFloat4ToHalf4(half* result, const float* float4)
 {
     #ifdef AX_SUPPORT_AVX2
     *((long long*)result) = _mm_extract_epi64(_mm_cvtps_ph(_mm_loadu_ps(float4), _MM_FROUND_TO_NEAREST_INT), 0);
@@ -473,13 +472,13 @@ inline void ConvertFloat4ToHalf4(half* result, float* float4)
 
 #else
 
-inline void ConvertHalf8ToFloat8(void* half8)
+inline void ConvertHalf8ToFloat8(float* float8, const void* half8)
 {
-    ConvertHalf4ToFloat4((vec_t*)half8    , half8);
-    ConvertHalf4ToFloat4((vec_t*)half8 + 1, (uint64_t*)half8 + 1);
+    ConvertHalf4ToFloat4(float8    , half8);
+    ConvertHalf4ToFloat4(float8 + 4, (const uint64_t*)half8 + 1);
 }
 
-inline void ConvertFloat8ToHalf8(vec_t* result, float* float8)
+inline void ConvertFloat8ToHalf8(half* result, const float* float8)
 {
     ConvertFloat4ToHalf4((half*)result, float8);
     ConvertFloat4ToHalf4((half*)result + 4, float8 + 4);
