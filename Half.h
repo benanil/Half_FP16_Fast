@@ -227,6 +227,31 @@ purefn veci_t ARMCreateVecI(uint x, uint y, uint z, uint w) {
 
 #endif
 
+#if defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
+// calculate popcount of 4 32 bit integer concurrently
+purefn vecu_t VECTORCALL PopCount32_128(vecu_t x)
+{
+    vecu_t y;
+    y = VeciAnd(VeciSrl32(x, 1), VeciSet1(0x55555555));
+    x = VeciSub(x, y);
+    y = VeciAnd(VeciSrl32(x, 2), VeciSet1(0x33333333));
+    x = VeciAdd(VeciAnd(x, VeciSet1(0x33333333)), y);  
+    x = VeciAnd(VeciAdd(x, VeciSrl32(x, 4)), VeciSet1(0x0F0F0F0F));
+    return VeciSrl32(VeciMul(x, VeciSet1(0x01010101)),  24);
+}
+
+// LeadingZeroCount of 4 32 bit integer concurrently
+purefn vecu_t VECTORCALL LeadingZeroCount32_128(vecu_t x)
+{
+    x = VeciOr(x, VeciSrl32(x, 1));
+    x = VeciOr(x, VeciSrl32(x, 2));
+    x = VeciOr(x, VeciSrl32(x, 4));
+    x = VeciOr(x, VeciSrl32(x, 8));
+    x = VeciOr(x, VeciSrl32(x, 16)); 
+    return VeciSub(VeciSet1(sizeof(uint32_t) * 8), PopCount32_128(x));
+}   
+#endif // defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
+
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <float.h>
@@ -286,39 +311,12 @@ purefn float ConvertHalfToFloat(half x)
     uint h_m = h & 0x000003ffu;
     uint h_s = h & 0x00008000u;
     uint h_e_f_bias = h_e + 0x0001c000u;
-    uint h_m_nlz = LeadingZeroCount32(h_m) - (32u - 10u); // Assuming 32-bit integer
 
     uint f_s  = h_s        << 0x00000010u;
     uint f_e  = h_e_f_bias << 0x0000000du;
     uint f_m  = h_m        << 0x0000000du;
-    uint f_em = f_e | f_m;
+    uint f_result = f_s | f_e | f_m;
         
-    uint h_f_m_sa = h_m_nlz - 0x00000008u;
-    uint f_e_denorm_unpacked = 0x0000007eu - h_f_m_sa;
-    
-    uint h_f_m       = h_m << h_f_m_sa;
-    uint f_m_denorm  = h_f_m & 0x007fffffu;
-    uint f_e_denorm  = f_e_denorm_unpacked << 0x00000017u;
-    uint f_em_denorm = f_e_denorm | f_m_denorm;
-    uint f_em_nan    = 0x7f800000u | f_m;
-        
-    uint is_e_eqz_msb = h_e - 1u;
-    uint is_m_nez_msb = ~h_m + 1u;
-    uint is_e_flagged_msb = 0x00007bffu - h_e;
-    uint is_zero_msb = ~(is_e_eqz_msb & is_m_nez_msb);
-    uint is_inf_msb = ~(is_e_flagged_msb & is_m_nez_msb);
-    uint is_denorm_msb = is_m_nez_msb & is_e_eqz_msb;
-    uint is_nan_msb = is_e_flagged_msb & is_m_nez_msb;
-        
-    uint is_zero = is_zero_msb >> 31u;
-    uint f_zero_result = f_em & ~is_zero;
-    uint msk = is_denorm_msb >> 31;
-    uint f_denorm_result = (msk & f_em_denorm) | (~msk & f_zero_result);
-    msk = is_inf_msb >> 31;
-    uint f_inf_result = (msk & 0x7f800000u) | (~msk & f_denorm_result);
-    msk = is_nan_msb >> 31;
-    uint f_nan_result = (msk & f_em_nan) | (~msk & f_inf_result);
-    uint f_result = f_s | f_nan_result;
     return BitCast(float, f_result);
 #endif
 }
@@ -331,7 +329,7 @@ purefn half ConvertFloatToHalf(float Value)
     return _cvtss_sh(Value, 0);
 #else
     uint32_t Result; // branch removed version of DirectxMath function
-    uint32_t IValue = BitCast(uint32_t, Value);
+    uint32_t IValue = <uint32_t>(Value);
     uint32_t Sign = (IValue & 0x80000000u) >> 16U;
     IValue = IValue & 0x7FFFFFFFu;      // Hack off the sign
     // if (IValue > 0x47FFEFFFu) { 
@@ -360,51 +358,13 @@ inline void ConvertHalf2ToFloat2(float* result, uint32_t h)
     uint64_t h_s = h2 & 0x0000800000008000ull;
     uint64_t h_e_f_bias = h_e + 0x0001c0000001c000ull;
 
-    uint64_t h_m_nlz = LeadingZeroCount32(h_m & 0xFFFFFFFFull) - (32ull - 10ull);
-    h_m_nlz |= (uint64_t)(LeadingZeroCount32((h_m >> 32u) & 0xFFFFFFFFull) - (32ull - 10ull)) << 32ull;
-
     uint64_t f_s  = h_s        << 0x00000010ull;
     uint64_t f_e  = h_e_f_bias << 0x0000000dull;
     uint64_t f_m  = h_m        << 0x0000000dull;
-    uint64_t f_em = f_e | f_m;
+    uint64_t f_result = f_s | f_e | f_m;
         
-    uint64_t h_f_m_sa = h_m_nlz - 0x0000000800000008ull;
-    uint64_t f_e_denorm_unpacked = 0x0000007e0000007eull - h_f_m_sa;
-
-    uint64_t h_f_m = h_m << (h_f_m_sa & 0xFFFFFFFFull) & 0xFFFFFFFFull;
-    h_f_m |= ((h_m >> 32ull) << (h_f_m_sa >> 32ull)) << 32ull;
-
-    uint64_t f_m_denorm  = h_f_m & 0x007fffff007fffffull;
-    uint64_t f_e_denorm  = f_e_denorm_unpacked << 0x00000017ull;
-    uint64_t f_em_denorm = f_e_denorm | f_m_denorm;
-    uint64_t f_em_nan    = 0x7f8000007f800000ull | f_m;
-        
-    uint64_t is_e_eqz_msb     =  h_e - 1ull - (1ull << 32ull);
-    uint64_t is_m_nez_msb     = ~h_m + 1ull + (1ull << 32ull);
-    const uint64_t SignMask = 0x8000000080000000ull;
-    is_m_nez_msb &= SignMask;
-
-    uint64_t is_e_flagged_msb = 0x00007bff00007bffull - h_e;
-    uint64_t is_zero_msb      = ~(is_e_eqz_msb     & is_m_nez_msb);
-    uint64_t is_inf_msb       = ~(is_e_flagged_msb & is_m_nez_msb);
-    uint64_t is_denorm_msb    = is_m_nez_msb     & is_e_eqz_msb;
-    uint64_t is_nan_msb       = is_e_flagged_msb & is_m_nez_msb;
-        
-    uint64_t is_zero  = (is_zero_msb   & SignMask) >> 31ull;
-    uint64_t msk      = (is_denorm_msb & SignMask) >> 31ull;
-    
-    uint64_t f_zero_result   = f_em & ~is_zero;
-    uint64_t f_denorm_result = (msk & f_em_denorm) | (~msk & f_zero_result);
-    
-    msk  = (is_inf_msb & SignMask) >> 31ull;
-    uint64_t f_inf_result = (msk & 0x7f8000007f800000ull) | (~msk & f_denorm_result);
-    
-    msk  = (is_nan_msb & SignMask) >> 31ull;
-    uint64_t f_nan_result = (msk & f_em_nan) | (~msk & f_inf_result);
-    uint64_t f_result = f_s | f_nan_result;
-
-    result[0] = BitCast(float, (uint32_t)(f_result & 0xFFFFFFFFu));
-    result[1] = BitCast(float, (uint32_t)(f_result >> 32ull));
+    *(uint32_t*)result       = f_result & 0xFFFFFFFFu;
+    *((uint32_t*)result + 1) = f_result >> 32ull;
     #endif
 }
 
@@ -413,31 +373,6 @@ inline void ConvertFloat2ToHalf2(void* result, float* float2)
     *(half*)result       = ConvertFloatToHalf(float2[0]);
     *((half*)result + 1) = ConvertFloatToHalf(float2[1]);
 }
-
-#if defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
-// calculate popcount of 4 32 bit integer concurrently
-purefn vecu_t VECTORCALL PopCount32_128(vecu_t x)
-{
-    vecu_t y;
-    y = VeciAnd(VeciSrl32(x, 1), VeciSet1(0x55555555));
-    x = VeciSub(x, y);
-    y = VeciAnd(VeciSrl32(x, 2), VeciSet1(0x33333333));
-    x = VeciAdd(VeciAnd(x, VeciSet1(0x33333333)), y);  
-    x = VeciAnd(VeciAdd(x, VeciSrl32(x, 4)), VeciSet1(0x0F0F0F0F));
-    return VeciSrl32(VeciMul(x, VeciSet1(0x01010101)),  24);
-}
-
-// LeadingZeroCount of 4 32 bit integer concurrently
-purefn vecu_t VECTORCALL LeadingZeroCount32_128(vecu_t x)
-{
-    x = VeciOr(x, VeciSrl32(x, 1));
-    x = VeciOr(x, VeciSrl32(x, 2));
-    x = VeciOr(x, VeciSrl32(x, 4));
-    x = VeciOr(x, VeciSrl32(x, 8));
-    x = VeciOr(x, VeciSrl32(x, 16)); 
-    return VeciSub(VeciSet1(sizeof(uint32_t) * 8), PopCount32_128(x));
-}   
-#endif // defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
 
 // input half4 is 4x 16 bit integer for example it can be uint64_t
 inline void ConvertHalf4ToFloat4(float* result, void* half4) 
@@ -452,117 +387,62 @@ inline void ConvertHalf4ToFloat4(float* result, void* half4)
     vecu_t h_m = VeciAnd(h4, VeciSet1(0x000003ff));
     vecu_t h_s = VeciAnd(h4, VeciSet1(0x00008000));
     vecu_t h_e_f_bias = VeciAdd(h_e, VeciSet1(0x0001c000));
-    vecu_t h_m_nlz    = VeciSub(LeadingZeroCount32_128(h_m), VeciSet1(32ull - 10ull));
     
     vecu_t f_s  = VeciSll32(h_s, 0x00000010);
     vecu_t f_e  = VeciSll32(h_e_f_bias, 0x0000000d);
     vecu_t f_m  = VeciSll32(h_m, 0x0000000d);
     vecu_t f_em = VeciOr(f_e, f_m);
-        
-    vecu_t h_f_m_sa = VeciSub(h_m_nlz, VeciSet1(0x00000008));
-    vecu_t f_e_denorm_unpacked = VeciSub(VeciSet1(0x0000007e), h_f_m_sa);
+
+    vecu_t i_result = VeciOr(f_s, f_em);
+    VecStore(result, VeciToVecf(i_result));
     
-    vecu_t h_f_m        = VeciSll(h_m, h_f_m_sa);
-    vecu_t f_m_denorm   = VeciAnd(h_f_m, VeciSet1(0x007fffff));
-    vecu_t f_e_denorm   = VeciSll32(f_e_denorm_unpacked, 0x00000017ull);
-    vecu_t f_em_denorm  = VeciOr(f_e_denorm, f_m_denorm);
-    vecu_t f_em_nan     = VeciOr(VeciSet1(0x7f800000), f_m);
-        
-    vecu_t is_e_eqz_msb = VeciSub(h_e, VeciSet1(1));
-    vecu_t is_m_nez_msb = VeciAdd(VeciAndNot(h_m, VeciSelect1111) , VeciSet1(1));
-    
-    vecu_t is_e_flagged_msb = VeciSub(VeciSet1(0x00007bff), h_e);
-    vecu_t is_zero_msb      = VeciAndNot(is_m_nez_msb, is_e_eqz_msb);
-    vecu_t is_inf_msb       = VeciAndNot(is_m_nez_msb, is_e_flagged_msb);
-    vecu_t is_denorm_msb    = VeciAnd(is_m_nez_msb, is_e_eqz_msb);
-    vecu_t is_nan_msb       = VeciAnd(is_e_flagged_msb, is_m_nez_msb);
-        
-    vecu_t is_zero  = VeciSrl32(is_zero_msb, 31ull);
-    
-    vecu_t msk = VeciSrl32(is_denorm_msb, 31ull);
-    vecu_t f_zero_result = VeciAndNot(is_zero, f_em);
-    vecu_t f_denorm_result = VeciOr(VeciAnd(msk, f_em_denorm), VeciAndNot(msk, f_zero_result));
-    
-    msk  = VeciSrl32(is_inf_msb, 31ull);
-    vecu_t f_inf_result = VeciOr(VeciAnd(msk, VeciSet1(0x7f800000)), VeciAndNot(msk, f_denorm_result));
-    
-    msk  = VeciSrl32(is_nan_msb, 31ull);
-    vecu_t f_nan_result = VeciOr(VeciAnd(msk, f_em_nan), VeciAndNot(msk, f_inf_result));
-    vecu_t i_result     = VeciOr(f_s, f_nan_result);
-    *result = VeciToVecf(i_result);
-    #else
-    ConvertHalf2ToFloat2((float*)result, *(uint32_t*)half4);
-    ConvertHalf2ToFloat2((float*)result + 2, *((uint32_t*)(half4) + 1));
+    #else // no intrinsics
+    ConvertHalf2ToFloat2(result, *(uint32_t*)half4);
+    ConvertHalf2ToFloat2(result + 2, *((uint32_t*)(half4) + 1));
     #endif
 }
 
+// note that no nan, inf and overflow check. only underflow check
 inline void ConvertFloat4ToHalf4(half* result, float* float4)
 {
     #ifdef AX_SUPPORT_AVX2
     *((long long*)result) = _mm_extract_epi64(_mm_cvtps_ph(_mm_loadu_ps(float4), _MM_FROUND_TO_NEAREST_INT), 0);
+    return;
     #elif defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
+
     const vecu_t one                        = VeciSet1( 0x00000001 );
     const vecu_t f_s_mask                   = VeciSet1( 0x80000000 );
     const vecu_t f_e_mask                   = VeciSet1( 0x7f800000 );
     const vecu_t f_m_mask                   = VeciSet1( 0x007fffff );
     const vecu_t f_m_hidden_bit             = VeciSet1( 0x00800000 );
     const vecu_t f_m_round_bit              = VeciSet1( 0x00001000 );
-    const vecu_t f_snan_mask                = VeciSet1( 0x7fc00000 );
     const vecu_t f_e_pos                    = VeciSet1( 0x00000017 );
     const vecu_t h_e_pos                    = VeciSet1( 0x0000000a );
-    const vecu_t h_e_mask                   = VeciSet1( 0x00007c00 );
-    const vecu_t h_snan_mask                = VeciSet1( 0x00007e00 );
-    const vecu_t h_e_mask_value             = VeciSet1( 0x0000001f );
     const vecu_t f_h_s_pos_offset           = VeciSet1( 0x00000010 );
     const vecu_t f_h_bias_offset            = VeciSet1( 0x00000070 );
     const vecu_t f_h_m_pos_offset           = VeciSet1( 0x0000000d );
-    const vecu_t h_nan_min                  = VeciSet1( 0x00007c01 );
-    const vecu_t f_h_e_biased_flag          = VeciSet1( 0x0000008f );
-    
-    vec_t f4 = VecAdd(VecLoad(float4), VecSet1(0.0001f)); // prevent the problem with 0 value, maybe there is better solution for this but idk
-    vecu_t f = VecToInt(f4);
+
+    // prevent the problem with 0 value, underflow check
+    const vec_t minfp16 = VecSet1(0.00008f);
+    vec_t f4 = VecLoad(float4);  
+    f4 = VecSelect(f4, minfp16, VecCmpLt(VecFabs(f4), minfp16));
+
+    vecu_t f = VeciFromVec(f4);
     vecu_t f_s                        = VeciAnd( f,               f_s_mask         );
     vecu_t f_e                        = VeciAnd( f,               f_e_mask         );
     vecu_t h_s                        = VeciSrl( f_s,             f_h_s_pos_offset );
     vecu_t f_m                        = VeciAnd( f,               f_m_mask         );
     vecu_t f_e_amount                 = VeciSrl( f_e,             f_e_pos          );
     vecu_t f_e_half_bias              = VeciSub( f_e_amount,      f_h_bias_offset  );
-    vecu_t f_snan                     = VeciAnd( f,               f_snan_mask      );
     vecu_t f_m_round_mask             = VeciAnd( f_m,             f_m_round_bit    );
     vecu_t f_m_round_offset           = VeciSll( f_m_round_mask,  one              );
     vecu_t f_m_rounded                = VeciAdd( f_m,             f_m_round_offset );
-    vecu_t f_m_denorm_sa              = VeciSub( one,             f_e_half_bias    );
-    vecu_t f_m_with_hidden            = VeciOr(  f_m_rounded,     f_m_hidden_bit   );
-    vecu_t f_m_denorm                 = VeciSrl( f_m_with_hidden, f_m_denorm_sa    );
-    vecu_t h_m_denorm                 = VeciSrl( f_m_denorm,      f_h_m_pos_offset );
-    vecu_t f_m_rounded_overflow       = VeciAnd( f_m_rounded,     f_m_hidden_bit   );
-    vecu_t m_nan                      = VeciSrl( f_m,             f_h_m_pos_offset );
-    vecu_t h_em_nan                   = VeciOr(  h_e_mask,        m_nan            );
-    vecu_t h_e_norm_overflow_offset   = VeciAdd( f_e_half_bias,   one);
-    vecu_t h_e_norm_overflow          = VeciSll( h_e_norm_overflow_offset, h_e_pos          );
-    vecu_t h_e_norm                   = VeciSll( f_e_half_bias,            h_e_pos          );
-    vecu_t h_m_norm                   = VeciSrl( f_m_rounded,              f_h_m_pos_offset );
-    vecu_t h_em_norm                  = VeciOr(  h_e_norm,                 h_m_norm         );
-    vecu_t is_h_ndenorm_msb           = VeciSub( f_h_bias_offset,   f_e_amount    );
-    vecu_t is_f_e_flagged_msb         = VeciSub( f_h_e_biased_flag, f_e_half_bias );
-    vecu_t is_h_denorm_msb            = VeciNot( is_h_ndenorm_msb );
-    vecu_t is_f_m_eqz_msb             = VeciSub( f_m   , one);
-    vecu_t is_h_nan_eqz_msb           = VeciSub( m_nan , one);
-    vecu_t is_f_inf_msb               = VeciAnd( is_f_e_flagged_msb, is_f_m_eqz_msb   );
-    vecu_t is_f_nan_underflow_msb     = VeciAnd( is_f_e_flagged_msb, is_h_nan_eqz_msb );
-    vecu_t is_e_overflow_msb          = VeciSub( h_e_mask_value,     f_e_half_bias    );
-    vecu_t is_h_inf_msb               = VeciOr(  is_e_overflow_msb,  is_f_inf_msb     );
-    vecu_t is_f_nsnan_msb             = VeciSub( f_snan,             f_snan_mask      );
-    vecu_t is_m_norm_overflow_msb     = VeciNeg( f_m_rounded_overflow );
-    vecu_t is_f_snan_msb              = VeciNot( is_f_nsnan_msb );
-    vecu_t h_em_overflow_result       = VeciBlend(h_em_norm                , h_e_norm_overflow, VeciSll32(is_m_norm_overflow_msb, 31));
-    vecu_t h_em_nan_result            = VeciBlend(h_em_overflow_result     , h_em_nan,          VeciSll32(is_f_e_flagged_msb, 31));
-    vecu_t h_em_nan_underflow_result  = VeciBlend(h_em_nan_result          , h_nan_min,         VeciSll32(is_f_nan_underflow_msb, 31));
-    vecu_t h_em_inf_result            = VeciBlend(h_em_nan_underflow_result, h_e_mask,          VeciSll32(is_h_inf_msb, 31));
-    vecu_t h_em_denorm_result         = VeciBlend(h_em_inf_result          , h_m_denorm,        VeciSll32(is_h_denorm_msb, 31));
-    vecu_t h_em_snan_result           = VeciBlend(h_em_denorm_result       , h_snan_mask,       VeciSll32(is_f_snan_msb, 31));
-    vecu_t h_result                   = VeciOr( h_s, h_em_snan_result );
-        
+    vecu_t h_e_norm                   = VeciSll( f_e_half_bias,   h_e_pos          );
+    vecu_t h_m_norm                   = VeciSrl( f_m_rounded,     f_h_m_pos_offset );
+    vecu_t h_em_norm                  = VeciOr(  h_e_norm,        h_m_norm         );
+    
+    vecu_t h_result = VeciOr(h_s, h_em_norm); 
+
     #ifdef AX_SUPPORT_SSE
         const int shufleMask = MakeShuffleMask(0, 2, 1, 3);
         __m128i lo = _mm_shufflelo_epi16(h_result, shufleMask);
@@ -584,7 +464,15 @@ inline void ConvertFloat4ToHalf4(half* result, float* float4)
 }
 
 
-#ifndef AX_SUPPORT_AVX2
+#ifdef AX_SUPPORT_AVX2
+
+// convert 8 float and half with one instruction
+#define ConvertFloat8ToHalf8(result, float8) _mm_storeu_si128((__m128i*)result, _mm256_cvtps_ph(_mm256_loadu_ps(float8), _MM_FROUND_TO_NEAREST_INT))
+
+#define ConvertHalf8ToFloat8(result, half8)  _mm256_storeu_ps(result,  _mm256_cvtph_ps(_mm_loadu_si128((const __m128i*)half8)))
+
+#else
+
 inline void ConvertHalf8ToFloat8(void* half8)
 {
     ConvertHalf4ToFloat4((vec_t*)half8    , half8);
@@ -596,13 +484,6 @@ inline void ConvertFloat8ToHalf8(vec_t* result, float* float8)
     ConvertFloat4ToHalf4((half*)result, float8);
     ConvertFloat4ToHalf4((half*)result + 4, float8 + 4);
 }
-
-#else
-
-
-#define ConvertFloat8ToHalf8(result, float8) _mm_storeu_si128((__m128i*)result, _mm256_cvtps_ph(_mm256_loadu_ps(float8), _MM_FROUND_TO_NEAREST_INT))
-
-#define ConvertHalf8ToFloat8(result, half8)  _mm256_storeu_ps(result,  _mm256_cvtph_ps(_mm_loadu_si128((const __m128i*)half8)))
 
 #endif // AX_SUPPORT_AVX2
 
