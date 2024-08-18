@@ -440,10 +440,10 @@ purefn vecu_t VECTORCALL LeadingZeroCount32_128(vecu_t x)
 #endif // defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
 
 // input half4 is 4x 16 bit integer for example it can be uint64_t
-inline void ConvertHalf4ToFloat4(vec_t* result, void* half4) 
+inline void ConvertHalf4ToFloat4(float* result, void* half4) 
 {
     #ifdef AX_SUPPORT_AVX2
-    *result = _mm_cvtph_ps(_mm_loadu_si64(half4));
+    _mm_storeu_ps(result, _mm_cvtph_ps(_mm_loadu_si64(half4)));
     #elif defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
     vecu_t h4 = VeciLoad64(half4);
     h4 = VeciUnpackLow16(h4, VeciZero());   // [half4.xy, half4.xy, half4.zw, half4.zw] 
