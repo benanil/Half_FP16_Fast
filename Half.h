@@ -10,8 +10,6 @@
 *    Mike Acton (original implementation): https://cellperformance.beyond3d.com/articles/2006/07/branchfree_implementation_of_h_1.html#half_to_float *
 *******************************************************************************************/
 
-// todo better check for arm neon fp16
-
 #ifndef Half_FP16_Fast
 #define Half_FP16_Fast
 #define __STDC_LIMIT_MACROS
@@ -105,43 +103,9 @@ typedef uint32_t uint;
     #endif
 #endif
 
-#if defined(__ARM_NEON__)
-    #define PopCount32(x) vcnt_u8((int8x8_t)x)
-#elif defined(AX_SUPPORT_SSE)
-    #define PopCount32(x) _mm_popcnt_u32(x)
-#elif defined(__GNUC__) || !defined(__MINGW32__)
-    #define PopCount32(x) __builtin_popcount(x)
-#else
-purefn uint32_t PopCount32(uint32_t x) {
-    x =  x - ((x >> 1) & 0x55555555);        // add pairs of bits
-    x = (x & 0x33333333) + ((x >> 2) & 0x33333333);  // quads
-    x = (x + (x >> 4)) & 0x0F0F0F0F;        // groups of 8
-    return (x * 0x01010101) >> 24;          // horizontal sum of bytes	
-}
-
-// standard popcount; from wikipedia
-purefn uint64_t PopCount64(uint64_t x) {
-    x -= ((x >> 1) & 0x5555555555555555ull);
-    x = (x & 0x3333333333333333ull) + (x >> 2 & 0x3333333333333333ull);
-    return ((x + (x >> 4)) & 0xf0f0f0f0f0f0f0full) * 0x101010101010101ull >> 56;
-}
-#endif
-
-#ifdef _MSC_VER
-    #define LeadingZeroCount32(x) _lzcnt_u32(x)
-#elif defined(__GNUC__) || !defined(__MINGW32__)
-    #define LeadingZeroCount32(x) __builtin_clz(x)
-#else
-    #error you should define pack function
-    purefn uint32_t LeadingZeroCount64(uint32_t x)
-    {
-        x |= (x >> 1);
-        x |= (x >> 2);
-        x |= (x >> 4);
-        x |= (x >> 8);
-        x |= (x >> 16);
-        return (sizeof(uint32_t) * 8) - PopCount32(x);
-    }
+#if defined( _M_ARM64 ) || defined( __aarch64__ ) || defined( __arm64__ ) || defined(__ARM_NEON__)
+    #define AX_SUPPORT_NEON
+    #include <arm_fp16.h>
 #endif
 
 #if defined(AX_SUPPORT_SSE) && !defined(AX_ARM)
@@ -243,36 +207,16 @@ purefn vecu_t ARMCreateVecI(uint x, uint y, uint z, uint w) {
 
 #endif
 
-#if defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
-// calculate popcount of 4 32 bit integer concurrently
-purefn vecu_t VECTORCALL PopCount32_128(vecu_t x)
-{
-    vecu_t y;
-    y = VeciAnd(VeciSrl32(x, 1), VeciSet1(0x55555555));
-    x = VeciSub(x, y);
-    y = VeciAnd(VeciSrl32(x, 2), VeciSet1(0x33333333));
-    x = VeciAdd(VeciAnd(x, VeciSet1(0x33333333)), y);  
-    x = VeciAnd(VeciAdd(x, VeciSrl32(x, 4)), VeciSet1(0x0F0F0F0F));
-    return VeciSrl32(VeciMul(x, VeciSet1(0x01010101)),  24);
-}
-
-// LeadingZeroCount of 4 32 bit integer concurrently
-purefn vecu_t VECTORCALL LeadingZeroCount32_128(vecu_t x)
-{
-    x = VeciOr(x, VeciSrl32(x, 1));
-    x = VeciOr(x, VeciSrl32(x, 2));
-    x = VeciOr(x, VeciSrl32(x, 4));
-    x = VeciOr(x, VeciSrl32(x, 8));
-    x = VeciOr(x, VeciSrl32(x, 16)); 
-    return VeciSub(VeciSet1(sizeof(uint32_t) * 8), PopCount32_128(x));
-}   
-#endif // defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
-
 /*//////////////////////////////////////////////////////////////////////////*/
 /*                             Half                                         */
 /*//////////////////////////////////////////////////////////////////////////*/
 
+#ifdef AX_SUPPORT_NEON
+typedef float16_t half;
+#else
 typedef ushort half;
+#endif
+
 #define OneFP16()  (15360)
 #define MinusOneFP16() (48128)
 #define ZeroFP16()  (0)
@@ -302,8 +246,8 @@ purefn float ConvertHalfToFloat(half x)
 {
 #if defined(AX_SUPPORT_AVX2) 
     return _mm_cvtss_f32(_mm_cvtph_ps(_mm_set1_epi16(x))); 
-#elif defined(__ARM_NEON__)
-    return _cvtsh_ss(x); 
+#elif defined(AX_SUPPORT_NEON)
+    return vgetq_lane_f32(vcvt_f32_f16(vdup_n_f16(x)), 0);
 #else
     uint h = x;
     uint h_e = h & 0x00007c00u;
@@ -324,8 +268,8 @@ purefn half ConvertFloatToHalf(float Value)
 {
 #if defined(AX_SUPPORT_AVX2)
     return _mm_extract_epi16(_mm_cvtps_ph(_mm_set_ss(Value), 0), 0);
-#elif defined(__ARM_NEON__)
-    return _cvtss_sh(Value, 0);
+#elif defined(AX_SUPPORT_NEON)
+    return vget_lane_f16(vcvt_f16_f32(vdupq_n_f32(Value)), 0);
 #else
     uint32_t Result; // branch removed version of DirectxMath function
     uint32_t IValue = BitCast(uint32_t, Value);
@@ -346,10 +290,12 @@ purefn half ConvertFloatToHalf(float Value)
 
 inline void ConvertHalf2ToFloat2(float* result, uint32_t h) 
 {
-    #if defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
-    result[0] = ConvertHalfToFloat(h & 0xFFFF);
-    result[1] = ConvertHalfToFloat(h >> 16);
-    #else
+#if defined(AX_SUPPORT_AVX2)
+    _mm_storel_pi((__m64 *)result, _mm_cvtph_ps(_mm_set1_epi16(h)));
+#elif defined(AX_SUPPORT_NEON)
+    float16x4_t halfVec = vreinterpret_f16_u32(vdup_n_u32(h));
+    vst1_f32(result, vget_low_f32(vcvt_f32_f16(halfVec)));
+#else
     uint64_t h2 = (uint64_t)(h & 0x0000FFFFull) | (uint64_t(h & 0xFFFF0000ull) << 16ull);
 
     uint64_t h_e = h2 & 0x00007c0000007c00ull;
@@ -364,21 +310,36 @@ inline void ConvertHalf2ToFloat2(float* result, uint32_t h)
         
     *(uint32_t*)result       = f_result & 0xFFFFFFFFu;
     *((uint32_t*)result + 1) = f_result >> 32ull;
-    #endif
+#endif
 }
 
-inline void ConvertFloat2ToHalf2(void* result, const float* float2)
+inline half2 ConvertFloat2ToHalf2(const float* float2)
 {
-    *(half*)result       = ConvertFloatToHalf(float2[0]);
-    *((half*)result + 1) = ConvertFloatToHalf(float2[1]);
+#if defined(AX_SUPPORT_NEON)
+    float32x2_t x = vld1_dup_f32(float2);
+    float32x4_t x4 = vcombine_f32(x, x);
+    return vget_lane_u32(vreinterpret_u32_f16(vcvt_f16_f32(x4)), 0);
+#elif defined(AX_SUPPORT_AVX)
+    return _mm_extract_epi32(_mm_cvtps_ph(_mm_set_ss(float2), 0), 0);
+#endif
+    half2 result;
+    result  = ConvertFloatToHalf(float2[0]);
+    result |= (uint32_t)ConvertFloatToHalf(float2[1]) << 16;
+    return result;
 }
 
 // input half4 is 4x 16 bit integer for example it can be uint64_t
 inline void ConvertHalf4ToFloat4(float* result, const void* half4) 
 {
-    #ifdef AX_SUPPORT_AVX2
+#ifdef AX_SUPPORT_AVX2
     _mm_storeu_ps(result, _mm_cvtph_ps(_mm_loadu_si64(half4)));
-    #elif defined(AX_SUPPORT_SSE) || defined(__ARM_NEON__)
+
+#elif defined(AX_SUPPORT_NEON)
+    uint32x2_t  x = vld1_dup_u32((const unsigned int*)half4);
+    float16x4_t x4 = vreinterpret_f16_u32(x);
+    vst1q_f32(result, vcvt_f32_f16(x4));
+
+#elif defined(AX_SUPPORT_SSE)
     vecu_t h4 = VeciLoad64(half4);
     h4 = VeciUnpackLow16(h4, VeciZero());   // [half4.xy, half4.xy, half4.zw, half4.zw] 
     
@@ -395,71 +356,60 @@ inline void ConvertHalf4ToFloat4(float* result, const void* half4)
     vecu_t i_result = VeciOr(f_s, f_em);
     VecStore(result, VeciToVecf(i_result));
     
-    #else // no intrinsics
+#else // no intrinsics
     ConvertHalf2ToFloat2(result, *(uint32_t*)half4);
     ConvertHalf2ToFloat2(result + 2, *((uint32_t*)(half4) + 1));
-    #endif
+#endif
 }
 
 // note that no nan, inf and overflow check. only underflow check
- void ConvertFloat4ToHalf4(half* result, const float* float4)
+void ConvertFloat4ToHalf4(half* result, const float* float4)
 {
-    #ifdef AX_SUPPORT_AVX2
+#ifdef AX_SUPPORT_AVX2
+
     *((long long*)result) = _mm_extract_epi64(_mm_cvtps_ph(_mm_loadu_ps(float4), _MM_FROUND_TO_NEAREST_INT), 0);
-    return;
-    #elif defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
 
-    const vecu_t one                        = VeciSet1( 0x00000001 );
-    const vecu_t f_s_mask                   = VeciSet1( 0x80000000 );
-    const vecu_t f_e_mask                   = VeciSet1( 0x7f800000 );
-    const vecu_t f_m_mask                   = VeciSet1( 0x007fffff );
-    const vecu_t f_m_hidden_bit             = VeciSet1( 0x00800000 );
-    const vecu_t f_m_round_bit              = VeciSet1( 0x00001000 );
-    const vecu_t f_e_pos                    = VeciSet1( 0x00000017 );
-    const vecu_t h_e_pos                    = VeciSet1( 0x0000000a );
-    const vecu_t f_h_s_pos_offset           = VeciSet1( 0x00000010 );
-    const vecu_t f_h_bias_offset            = VeciSet1( 0x00000070 );
-    const vecu_t f_h_m_pos_offset           = VeciSet1( 0x0000000d );
+#elif defined(AX_SUPPORT_NEON)
 
-    // prevent the problem with 0 value, underflow check
-    const vec_t minfp16 = VecSet1(0.00008f);
-    vec_t f4 = VecLoad(float4);  
-    f4 = VecSelect(f4, minfp16, VecCmpLt(VecFabs(f4), minfp16));
+    *(float16x4_t*)result = vcvt_f16_f32(vld1q_f32(float4));
 
-    vecu_t f = VeciFromVec(f4);
-    vecu_t f_s                        = VeciAnd( f,               f_s_mask         );
-    vecu_t f_e                        = VeciAnd( f,               f_e_mask         );
-    vecu_t h_s                        = VeciSrl( f_s,             f_h_s_pos_offset );
-    vecu_t f_m                        = VeciAnd( f,               f_m_mask         );
-    vecu_t f_e_amount                 = VeciSrl( f_e,             f_e_pos          );
-    vecu_t f_e_half_bias              = VeciSub( f_e_amount,      f_h_bias_offset  );
-    vecu_t f_m_round_mask             = VeciAnd( f_m,             f_m_round_bit    );
-    vecu_t f_m_round_offset           = VeciSll( f_m_round_mask,  one              );
-    vecu_t f_m_rounded                = VeciAdd( f_m,             f_m_round_offset );
-    vecu_t h_e_norm                   = VeciSll( f_e_half_bias,   h_e_pos          );
-    vecu_t h_m_norm                   = VeciSrl( f_m_rounded,     f_h_m_pos_offset );
-    vecu_t h_em_norm                  = VeciOr(  h_e_norm,        h_m_norm         );
+#elif defined(AX_SUPPORT_AVX2) || defined(__ARM_NEON__)
+
+    vecu_t IValue = VeciLoad((const unsigned int*)float4);
+    vecu_t Sign = VeciSrl32(VeciAnd(IValue, VeciSet1(0x80000000u)), 16);
+    IValue = VeciAnd(IValue, VeciSet1(0x7FFFFFFFu));      // Hack off the sign
     
-    vecu_t h_result = VeciOr(h_s, h_em_norm); 
+    vecu_t mask = VeciCmpLt(IValue, VeciSet1(0x38800000u));
+    vecu_t b = VeciAdd(IValue, VeciSet1(0xC8000000u));
+    vecu_t a = VeciOr(VeciSet1(0x800000u), VeciAnd(IValue, VeciSet1(0x7FFFFFu)));
+    a = VeciSrl(a, VeciSub(VeciSet1(113u), VeciSrl32(IValue, 23u)));
+    
+    IValue = VeciBlend(b, a, mask);
+
+    vecu_t Result = VeciAdd(IValue, VeciSet1(0x0FFFu));
+    Result = VeciAdd(Result, VeciAnd(VeciSrl32(IValue, 13u), VeciSet1(1u)));
+    Result = VeciSrl32(Result, 13u);
+    Result = VeciAnd(Result, VeciSet1(0x7FFFu));
+    Result = VeciOr(Result, Sign);
 
     #ifdef AX_SUPPORT_SSE
         const int shufleMask = MakeShuffleMask(0, 2, 1, 3);
-        __m128i lo = _mm_shufflelo_epi16(h_result, shufleMask);
+        __m128i lo = _mm_shufflelo_epi16(Result, shufleMask);
         __m128i hi = _mm_shufflehi_epi16(lo, shufleMask);
-        h_result = _mm_shuffle_epi32(hi, shufleMask);
-        *((long long*)result) = _mm_extract_epi64(h_result, 0);
+        Result = _mm_shuffle_epi32(hi, shufleMask);
+        *((long long*)result) = _mm_extract_epi64(Result, 0);
     #else
         // todo test
         // Narrow the 32-bit to 16-bit, effectively extracting the lower 16 bits of each element
-        uint16x4_t low16_bits = vmovn_u32(h_result);  // Narrow to 16 bits per element
+        uint16x4_t low16_bits = vmovn_u32(Result);  // Narrow to 16 bits per element
         // Directly cast the `uint16x4_t` to `uint64_t`
         vst1_u64((uint64_t*)result, vreinterpret_u64_u16(low16_bits));
     #endif
 
-    #else // no intrinsics
+#else // no intrinsics
         ConvertFloat2ToHalf2(result, float4);
         ConvertFloat2ToHalf2(result + 2, float4 + 2);
-    #endif
+#endif
 }
 
 
