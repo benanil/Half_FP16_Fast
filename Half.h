@@ -451,7 +451,7 @@ inline void ConvertHalf4ToFloat4(float* result, const void* half4)
     #else
         // todo test
         // Narrow the 32-bit to 16-bit, effectively extracting the lower 16 bits of each element
-        uint16x4_t low16_bits = vmovn_u32(vec);  // Narrow to 16 bits per element
+        uint16x4_t low16_bits = vmovn_u32(h_result);  // Narrow to 16 bits per element
         // Directly cast the `uint16x4_t` to `uint64_t`
         vst1_u64((uint64_t*)result, vreinterpret_u64_u16(low16_bits));
     #endif
