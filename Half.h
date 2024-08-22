@@ -291,7 +291,7 @@ purefn half ConvertFloatToHalf(float Value)
 inline void ConvertHalf2ToFloat2(float* result, uint32_t h) 
 {
 #if defined(AX_SUPPORT_AVX2)
-    _mm_storel_pi((__m64 *)result, _mm_cvtph_ps(_mm_set1_epi16(h)));
+    _mm_storel_pi((__m64 *)result, _mm_cvtph_ps(_mm_set1_epi32(h)));
 #elif defined(AX_SUPPORT_NEON)
     float16x4_t halfVec = vreinterpret_f16_u32(vdup_n_u32(h));
     vst1_f32(result, vget_low_f32(vcvt_f32_f16(halfVec)));
